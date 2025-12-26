@@ -56,6 +56,17 @@
         cursor: not-allowed;
         pointer-events: none; /* Disable clicks */
     }
+
+    .block.reward {
+        background-color: #FFD700 !important; /* Gold = Reward */
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+        animation: glow 2s ease-in-out infinite alternate;
+    }
+
+    @@keyframes glow {
+        from { box-shadow: 0 0 20px rgba(255, 215, 0, 0.8); }
+        to { box-shadow: 0 0 30px rgba(255, 215, 0, 1); }
+    }
     
     .block-owner {
         font-size: 10px;
@@ -79,6 +90,54 @@
         text-align: center;
         min-width: 300px;
     }
+
+    #game-status {
+        text-align: center;
+        margin: 20px 0;
+        padding: 15px;
+        border-radius: 10px;
+        font-weight: bold;
+    }
+
+    .status-waiting { background-color: #17a2b8; color: white; }
+    .status-countdown { background-color: #ffc107; color: black; }
+    .status-active { background-color: #28a745; color: white; }
+    .status-revealing { background-color: #6f42c1; color: white; }
+    .status-finished { background-color: #6c757d; color: white; }
+
+    #countdown-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.9);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+    }
+
+    .countdown-number {
+        font-size: 200px;
+        color: #FFD700;
+        font-weight: bold;
+        text-shadow: 0 0 50px rgba(255, 215, 0, 0.8);
+    }
+
+    .winner-notification {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(45deg, #FFD700, #FFA500);
+        padding: 20px 40px;
+        border-radius: 15px;
+        box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+        z-index: 3000;
+        display: none;
+        text-align: center;
+        color: #000;
+        font-weight: bold;
+        border: 3px solid #FF6347;
+    }
 </style>
 
 <div id="login-screen">
@@ -94,7 +153,22 @@
 <div class="text-center">
     <h1 class="display-4">Block Booking System</h1>
     <p>Welcome, <span id="current-user-display" class="fw-bold">Guest</span>! Click a green block to book it.</p>
-    <button class="btn btn-danger" onclick="resetAll()" style="margin-bottom: 15px;">Reset All Blocks</button>
+    
+    <div id="game-status" class="status-waiting">
+        <span id="status-text">Waiting for players... (Need 10 players to auto-start)</span>
+    </div>
+    
+    <button id="start-btn" class="btn btn-success" onclick="startGame()" style="margin: 10px; display: none;">Start Game</button>
+    <button class="btn btn-danger" onclick="resetAll()" style="margin: 10px;">Reset All Blocks</button>
+</div>
+
+<div id="countdown-overlay">
+    <div class="countdown-number" id="countdown-number"></div>
+</div>
+
+<div id="winner-notification" class="winner-notification">
+    <h3 id="winner-title">🎉 Congratulations! 🎉</h3>
+    <p id="winner-message"></p>
 </div>
 
 <div class="main-layout">
@@ -198,7 +272,84 @@
         document.getElementById('online-count').innerText = users.length;
         const list = document.getElementById('user-list');
         list.innerHTML = users.map(u => `<li class="list-group-item">${u}</li>`).join('');
+        
+        // Update game status based on player count
+        updateGameStatus(`${users.length}/10 players online`);
     });
+
+    // Game event handlers
+    connection.on("GameCountdown", function (count) {
+        const overlay = document.getElementById('countdown-overlay');
+        const number = document.getElementById('countdown-number');
+        
+        if (count > 0) {
+            overlay.style.display = 'flex';
+            number.innerText = count;
+            updateGameStatus("Game starting...", "countdown");
+        } else {
+            number.innerText = "GO!";
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 1000);
+        }
+    });
+
+    connection.on("GameStarted", function () {
+        updateGameStatus("Game in progress! (1 minute remaining)", "active");
+    });
+
+    connection.on("GameEnded", function () {
+        updateGameStatus("Game ended! Revealing rewards...", "revealing");
+    });
+
+    connection.on("RewardsRevealed", function (rewards) {
+        rewards.forEach(reward => {
+            const block = document.getElementById(`block-${reward.blockId}`);
+            if (block) {
+                block.classList.add('reward');
+                const rewardSpan = document.createElement('div');
+                rewardSpan.innerHTML = `<small>🎁 ${reward.rewardType}<br>${reward.rewardValue}</small>`;
+                block.appendChild(rewardSpan);
+            }
+        });
+    });
+
+    connection.on("WinnerNotification", function (userName, reward) {
+        if (userName === currentUser) {
+            showWinnerNotification(reward);
+        }
+    });
+
+    connection.on("GameReset", function () {
+        document.querySelectorAll('.block').forEach(b => {
+            b.classList.remove("taken", "reward");
+            b.setAttribute("data-owner", "");
+            const extraElements = b.querySelectorAll('.block-owner, div');
+            extraElements.forEach(el => el.remove());
+        });
+        updateGameStatus("Waiting for players...", "waiting");
+        updateLeaderboard();
+    });
+
+    function updateGameStatus(text, state = "waiting") {
+        const statusEl = document.getElementById('game-status');
+        const textEl = document.getElementById('status-text');
+        
+        textEl.innerText = text;
+        statusEl.className = `status-${state}`;
+    }
+
+    function showWinnerNotification(reward) {
+        const notification = document.getElementById('winner-notification');
+        const message = document.getElementById('winner-message');
+        
+        message.innerHTML = `You won a ${reward.rewardType} worth ${reward.rewardValue} points!<br>🎊 Amazing! 🎊`;
+        notification.style.display = 'block';
+        
+        setTimeout(() => {
+            notification.style.display = 'none';
+        }, 5000);
+    }
 
     // 3. Logic
     async function bookBlock(id) {
@@ -217,6 +368,17 @@
             }
         } catch (error) {
             console.error('Error booking block:', error);
+        }
+    }
+
+    async function startGame() {
+        try {
+            const response = await fetch('/api/booking/start', { method: 'POST' });
+            if (response.ok) {
+                document.getElementById('start-btn').style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error starting game:', error);
         }
     }
 
