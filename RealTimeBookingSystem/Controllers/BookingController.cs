@@ -16,11 +16,13 @@ namespace RealTimeBookingSystem.Controllers
     {
         private readonly IBookingService _bookingService;
         private readonly IHubContext<BookingHub> _hubContext;
+        private readonly IBroadcastService _broadcastService;
 
-        public BookingController(IBookingService bookingService, IHubContext<BookingHub> hubContext)
+        public BookingController(IBookingService bookingService, IHubContext<BookingHub> hubContext, IBroadcastService broadcastService)
         {
             _bookingService = bookingService;
             _hubContext = hubContext;
+            _broadcastService = broadcastService;
         }
 
         [HttpPost("{id}")]
@@ -34,8 +36,8 @@ namespace RealTimeBookingSystem.Controllers
 
             if (success)
             {
-                // 2. If successful, Broadcast to ALL connected clients via SignalR
-                await _hubContext.Clients.All.SendAsync("BlockBooked", id, request.UserName);
+                // 2. If successful, Queue broadcast
+                _broadcastService.QueueUpdate(id, request.UserName);
                 return Ok(new { success = true, message = $"Block {id} booked by {request.UserName}." });
             }
             else

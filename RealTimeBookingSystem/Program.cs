@@ -14,6 +14,11 @@ var redisConnection = builder.Configuration.GetConnectionString("Redis");
 builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnection));
 builder.Services.AddScoped<IBookingService, BookingService>();
 
+// Register BroadcastService as Singleton and HostedService
+builder.Services.AddSingleton<BroadcastService>();
+builder.Services.AddSingleton<IBroadcastService>(provider => provider.GetRequiredService<BroadcastService>());
+builder.Services.AddHostedService(provider => provider.GetRequiredService<BroadcastService>());
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

@@ -157,6 +157,18 @@
 
     // 2. Listen for events
     connection.on("BlockBooked", function (blockId, ownerName) {
+        updateBlockUI(blockId, ownerName);
+        updateLeaderboard();
+    });
+
+    connection.on("BatchBlockBooked", function (updates) {
+        updates.forEach(u => {
+            updateBlockUI(u.blockId, u.userName);
+        });
+        updateLeaderboard();
+    });
+
+    function updateBlockUI(blockId, ownerName) {
         const block = document.getElementById(`block-${blockId}`);
         if (block) {
             block.classList.add("taken");
@@ -169,10 +181,8 @@
                 span.innerText = ownerName;
                 block.appendChild(span);
             }
-            
-            updateLeaderboard();
         }
-    });
+    }
 
     connection.on("ResetAll", function () {
         document.querySelectorAll('.block').forEach(b => {
