@@ -7,7 +7,7 @@ namespace RealTimeBookingSystem.Pages
     {
         private readonly IBookingService _bookingService;
 
-        public List<int> BookedBlocks { get; set; } = new List<int>();
+        public Dictionary<int, string> BookedBlocks { get; set; } = new();
         public int TotalBlocks { get; set; } = 100;
 
         public IndexModel(IBookingService bookingService)
@@ -18,8 +18,7 @@ namespace RealTimeBookingSystem.Pages
         public async Task OnGetAsync()
         {
             // Fetch current state from Redis so the page renders correctly on F5 refresh
-            var booked = await _bookingService.GetBookedBlocksAsync();
-            BookedBlocks = booked.ToList();
+            BookedBlocks = await _bookingService.GetBookingsAsync();
         }
 
         

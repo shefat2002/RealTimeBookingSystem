@@ -5,6 +5,23 @@
 }
 
 <style>
+    .main-layout {
+        display: flex;
+        gap: 20px;
+    }
+    
+    .game-area {
+        flex: 2;
+    }
+    
+    .dashboard {
+        flex: 1;
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #dee2e6;
+    }
+
     .grid-container {
         display: grid;
         grid-template-columns: repeat(10, 1fr);
@@ -23,6 +40,10 @@
         border-radius: 5px;
         font-weight: bold;
         transition: transform 0.1s;
+        font-size: 12px;
+        text-align: center;
+        word-break: break-word;
+        flex-direction: column;
     }
 
     .block:hover {
@@ -35,64 +56,154 @@
         cursor: not-allowed;
         pointer-events: none; /* Disable clicks */
     }
+    
+    .block-owner {
+        font-size: 10px;
+        opacity: 0.9;
+    }
+
+    #login-screen {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    
+    .login-box {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        text-align: center;
+        min-width: 300px;
+    }
 </style>
+
+<div id="login-screen">
+    <div class="login-box">
+        <h2>Join Game</h2>
+        <div class="form-group mb-3">
+            <input type="text" id="username-input" class="form-control" placeholder="Enter your name" />
+        </div>
+        <button class="btn btn-primary w-100" onclick="joinGame()">Join</button>
+    </div>
+</div>
 
 <div class="text-center">
     <h1 class="display-4">Block Booking System</h1>
-    <p>Click a green block to book it. Updates occur in real-time.</p>
+    <p>Welcome, <span id="current-user-display" class="fw-bold">Guest</span>! Click a green block to book it.</p>
     <button class="btn btn-danger" onclick="resetAll()" style="margin-bottom: 15px;">Reset All Blocks</button>
 </div>
 
-<div class="grid-container">
-    @for (int i = 1; i <= Model.TotalBlocks; i++)
-    {
-        // Check if block is already in the Redis list from OnGet
-        var isTaken = Model.BookedBlocks.Contains(i) ? "taken" : "";
-        <div id="block-@i" class="block @isTaken" onclick="bookBlock(@i)">
-            @i
+<div class="main-layout">
+    <div class="game-area">
+        <div class="grid-container">
+            @for (int i = 1; i <= Model.TotalBlocks; i++)
+            {
+                var isTaken = Model.BookedBlocks.ContainsKey(i);
+                var owner = isTaken ? Model.BookedBlocks[i] : "";
+                var takenClass = isTaken ? "taken" : "";
+                
+                <div id="block-@i" class="block @takenClass" onclick="bookBlock(@i)" data-owner="@owner">
+                    <span>@i</span>
+                    @if(isTaken) { <span class="block-owner">@owner</span> }
+                </div>
+            }
         </div>
-    }
+    </div>
+    
+    <div class="dashboard">
+        <h4>Online Users (<span id="online-count">0</span>)</h4>
+        <ul id="user-list" class="list-group mb-4"></ul>
+        
+        <h4>Leaderboard</h4>
+        <ul id="leaderboard" class="list-group"></ul>
+    </div>
 </div>
-
 
 <!-- Include SignalR Client Library -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
 
 <script>
-    // 1. Initialize SignalR Connection
+    let currentUser = "";
     const connection = new signalR.HubConnectionBuilder()
         .withUrl("/bookingHub")
         .build();
 
-    // 2. Listen for "BlockBooked" events from server
-    connection.on("BlockBooked", function (blockId) {
+    // 1. Handle Login
+    function joinGame() {
+        const input = document.getElementById('username-input');
+        const name = input.value.trim();
+        if (!name) return alert("Please enter a name");
+        
+        currentUser = name;
+        document.getElementById('current-user-display').innerText = currentUser;
+        document.getElementById('login-screen').style.display = 'none';
+        
+        // Connect to SignalR and announce presence
+        startConnection();
+    }
+
+    async function startConnection() {
+        try {
+            await connection.start();
+            await connection.invoke("Join", currentUser);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // 2. Listen for events
+    connection.on("BlockBooked", function (blockId, ownerName) {
         const block = document.getElementById(`block-${blockId}`);
         if (block) {
-            block.classList.add("taken"); // Turn red
+            block.classList.add("taken");
+            block.setAttribute("data-owner", ownerName);
+            
+            // Add owner name to block
+            if (!block.querySelector('.block-owner')) {
+                const span = document.createElement('span');
+                span.className = 'block-owner';
+                span.innerText = ownerName;
+                block.appendChild(span);
+            }
+            
+            updateLeaderboard();
         }
     });
 
-    // Optional: Listen for Reset
     connection.on("ResetAll", function () {
-        document.querySelectorAll('.block').forEach(b => b.classList.remove("taken"));
+        document.querySelectorAll('.block').forEach(b => {
+            b.classList.remove("taken");
+            b.setAttribute("data-owner", "");
+            const ownerSpan = b.querySelector('.block-owner');
+            if (ownerSpan) ownerSpan.remove();
+        });
+        updateLeaderboard();
+    });
+    
+    connection.on("UpdateUserList", function (users) {
+        document.getElementById('online-count').innerText = users.length;
+        const list = document.getElementById('user-list');
+        list.innerHTML = users.map(u => `<li class="list-group-item">${u}</li>`).join('');
     });
 
-    // 3. Start Connection
-    connection.start().catch(err => console.error(err.toString()));
-
-    // 4. Function to call REST API
+    // 3. Logic
     async function bookBlock(id) {
-        // Optimistic UI update (optional, but makes it feel faster)
-        // We let the API and SignalR handle the actual confirmation
+        if (!currentUser) return;
         
         try {
             const response = await fetch(`/api/booking/${id}`, {
-                method: 'POST'
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userName: currentUser })
             });
 
             if (!response.ok) {
                 const data = await response.json();
-                alert(data.message); // "Block already taken"
+                alert(data.message);
             }
         } catch (error) {
             console.error('Error booking block:', error);
@@ -107,4 +218,26 @@
             console.error('Error resetting blocks:', error);
         }
     }
+    
+    function updateLeaderboard() {
+        // Calculate leaderboard from current DOM state
+        const counts = {};
+        document.querySelectorAll('.block.taken').forEach(b => {
+            const owner = b.getAttribute('data-owner');
+            if (owner) counts[owner] = (counts[owner] || 0) + 1;
+        });
+        
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        
+        const list = document.getElementById('leaderboard');
+        list.innerHTML = sorted.map(([name, count]) => 
+            `<li class="list-group-item d-flex justify-content-between align-items-center">
+                ${name}
+                <span class="badge bg-primary rounded-pill">${count}</span>
+            </li>`
+        ).join('');
+    }
+    
+    // Initial leaderboard calc
+    updateLeaderboard();
 </script>
