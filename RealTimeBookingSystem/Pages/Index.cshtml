@@ -1,10 +1,110 @@
-﻿@page
+@page
 @model IndexModel
 @{
-    ViewData["Title"] = "Home page";
+    ViewData["Title"] = "Real-time Booking";
 }
 
+<style>
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 10px;
+        margin-top: 20px;
+    }
+
+    .block {
+        height: 60px;
+        background-color: #4CAF50; /* Green = Available */
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        border-radius: 5px;
+        font-weight: bold;
+        transition: transform 0.1s;
+    }
+
+    .block:hover {
+        transform: scale(1.05);
+    }
+
+    /* Style for booked blocks */
+    .block.taken {
+        background-color: #F44336 !important; /* Red = Taken */
+        cursor: not-allowed;
+        pointer-events: none; /* Disable clicks */
+    }
+</style>
+
 <div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+    <h1 class="display-4">Block Booking System</h1>
+    <p>Click a green block to book it. Updates occur in real-time.</p>
+    <button class="btn btn-danger" onclick="resetAll()" style="margin-bottom: 15px;">Reset All Blocks</button>
 </div>
+
+<div class="grid-container">
+    @for (int i = 1; i <= Model.TotalBlocks; i++)
+    {
+        // Check if block is already in the Redis list from OnGet
+        var isTaken = Model.BookedBlocks.Contains(i) ? "taken" : "";
+        <div id="block-@i" class="block @isTaken" onclick="bookBlock(@i)">
+            @i
+        </div>
+    }
+</div>
+
+
+<!-- Include SignalR Client Library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+
+<script>
+    // 1. Initialize SignalR Connection
+    const connection = new signalR.HubConnectionBuilder()
+        .withUrl("/bookingHub")
+        .build();
+
+    // 2. Listen for "BlockBooked" events from server
+    connection.on("BlockBooked", function (blockId) {
+        const block = document.getElementById(`block-${blockId}`);
+        if (block) {
+            block.classList.add("taken"); // Turn red
+        }
+    });
+
+    // Optional: Listen for Reset
+    connection.on("ResetAll", function () {
+        document.querySelectorAll('.block').forEach(b => b.classList.remove("taken"));
+    });
+
+    // 3. Start Connection
+    connection.start().catch(err => console.error(err.toString()));
+
+    // 4. Function to call REST API
+    async function bookBlock(id) {
+        // Optimistic UI update (optional, but makes it feel faster)
+        // We let the API and SignalR handle the actual confirmation
+        
+        try {
+            const response = await fetch(`/api/booking/${id}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                alert(data.message); // "Block already taken"
+            }
+        } catch (error) {
+            console.error('Error booking block:', error);
+        }
+    }
+
+    async function resetAll() {
+        if (!confirm("Are you sure you want to reset all bookings?")) return;
+        try {
+            await fetch('/api/booking/reset', { method: 'POST' });
+        } catch (error) {
+            console.error('Error resetting blocks:', error);
+        }
+    }
+</script>

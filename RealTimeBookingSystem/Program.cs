@@ -1,7 +1,18 @@
+using RealTimeBookingSystem.Hubs;
+using RealTimeBookingSystem.Services;
+using StackExchange.Redis;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorPages();
+builder.Services.AddControllers(); // Required for API
+builder.Services.AddSignalR();     // Required for Real-time
+
+// Register Redis
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect(redisConnection));
+builder.Services.AddScoped<IBookingService, BookingService>();
 
 var app = builder.Build();
 
@@ -9,18 +20,19 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 
 app.UseRouting();
 
 app.UseAuthorization();
 
-app.MapStaticAssets();
-app.MapRazorPages()
-    .WithStaticAssets();
+// Map endpoints
+app.MapRazorPages();
+app.MapControllers();
+app.MapHub<BookingHub>("/bookingHub"); // SignalR Endpoint
 
 app.Run();
